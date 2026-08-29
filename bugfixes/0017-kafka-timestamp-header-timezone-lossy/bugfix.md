@@ -51,9 +51,9 @@ loses information that no reader can recover, so it fails on a UTC host too. Tha
 statement than the issue's BST-only reproduction, and it makes the regression test CI-safe.
 
 ## Evidence
-- [x] **Red repro** — `When_round_tripping_a_timestamp_across_hops`, failing pre-fix with
+- [x] **Red repro** — `When_round_tripping_a_timestamp_should_preserve_the_instant_across_hops`, failing pre-fix with
   `Expected: 2024-06-15T13:45:30.0000000+05:00 / Actual: 2024-06-15T19:15:30.0000000+05:30`.
-- [x] **Red repro (legacy-format facet)** — `When_reading_a_timestamp_written_by_an_older_producer`,
+- [x] **Red repro (legacy-format facet)** — `When_reading_a_timestamp_from_an_older_producer_should_treat_it_as_utc`,
   failing pre-fix on the offset assertion with `Expected: 00:00:00 / Actual: 05:30:00` (the host offset).
 - [x] **Code-trace** of both write and read sites as described above.
 
@@ -76,25 +76,32 @@ statement than the issue's BST-only reproduction, and it makes the regression te
     the issue's stated reference; it is left alone.
   - `When_converting_kafkaheader_to_brighterheader.cs:69`'s 5-second-tolerant assertion is left as is.
     It still passes and remains a meaningful single-hop check; the new tests cover the drift it cannot see.
-- **Separate pre-existing defect found, NOT fixed (out of scope, worth its own issue):** a consumed
-  Kafka message cannot be re-published and re-consumed in-process. `KafkaMessageCreator` puts
-  `TopicPartitionOffset` into `Header.Bag`; `KafkaDefaultMessageHeaderBuilder.AddUserDefinedBagHeaders`
-  writes the bag back out as a header (it is in neither `BrighterDefinedHeaders.HeadersToReset` nor
+- **Separate latent weakness found, NOT fixed (out of scope, worth its own issue):** a raw
+  builder-to-creator round-trip cannot be repeated. `KafkaMessageCreator` puts `TopicPartitionOffset`
+  into `Header.Bag`; `KafkaDefaultMessageHeaderBuilder.AddUserDefinedBagHeaders` writes the bag back
+  out as a header (the key is in neither `BrighterDefinedHeaders.HeadersToReset` nor
   `MessageHeader.IsLocalHeader`); the next read then hits
   `ArgumentException: An item with the same key has already been added. Key: TopicPartitionOffset`
-  in `ReadBagEntry`, which `CreateMessage` swallows into a `Message.FailureMessage`. The `ce_*` headers
-  are duplicated by the same route. This is what blocked an end-to-end two-hop *read* assertion; the
-  regression test asserts the second hop at the wire level instead.
+  in `ReadBagEntry`, which `CreateMessage` swallows into a `Message.FailureMessage`. The `ce_*` keys
+  are duplicated by the same route.
+
+  **This is not a live requeue bug.** `KafkaMessageConsumer.CleanBagForResend` (`:1068`) strips these
+  keys, and every gateway resend path calls it - `Requeue` (`:735`), `RequeueAsync` (`:768`), and
+  DLQ/reject via `RefreshMetadata` (`:1092`) - so the production requeue-redelivery path is safe and
+  the conformance tests are right to pass. The weakness is that the guard is a hand-maintained
+  deny-list in the *consumer* rather than a property of the bag key itself, so any republish route
+  that does not go through it is unprotected. It is what blocked an end-to-end two-hop *read*
+  assertion here; the regression test asserts the second hop at the wire level instead.
 
 ## Regression Test
-`tests/Paramore.Brighter.Kafka.Tests/MessagingGateway/Reactor/When_round_tripping_a_timestamp_across_hops.cs`
-— two `[Fact]`s, broker-free, and green under any host timezone:
+Two `[Fact]`s in `tests/Paramore.Brighter.Kafka.Tests/MessagingGateway/Reactor/`, broker-free, and
+green under any host timezone:
 
-- `When_round_tripping_a_timestamp_across_hops` — round-trips a timestamp at `+05:00` and asserts the
+- `When_round_tripping_a_timestamp_should_preserve_the_instant_across_hops` — round-trips a timestamp at `+05:00` and asserts the
   instant and its UTC wall clock survive, that the value read back is anchored to UTC
   (`Offset == TimeSpan.Zero`, which is what makes re-publishing idempotent), and that re-publishing
   what was read produces byte-identical `TimeStamp` header bytes — so drift cannot accumulate over hops.
-- `When_reading_a_timestamp_written_by_an_older_producer` — an offset-less invariant-format value is
+- `When_reading_a_timestamp_from_an_older_producer_should_treat_it_as_utc` — an offset-less invariant-format value is
   read as UTC and left there, pinning the backward-compatibility contract above.
 
 **RED confirmed** with the source change stashed: `Failed: 2, Passed: 0`.
