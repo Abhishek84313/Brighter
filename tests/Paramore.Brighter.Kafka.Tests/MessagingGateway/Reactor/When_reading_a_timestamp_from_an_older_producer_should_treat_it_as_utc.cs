@@ -11,8 +11,7 @@ namespace Paramore.Brighter.Kafka.Tests.MessagingGateway.Reactor;
 [Collection("Kafka")] //
 public class KafkaLegacyTimeStampFormatTests
 {
-    //The offset-less invariant-culture format written by producers on the old code, and the UTC
-    //instant it was meant to carry.
+    //The UTC instant that an old producer wrote in the offset-less invariant-culture format
     private static readonly DateTimeOffset s_utcTimeStamp = new(2024, 6, 15, 8, 45, 30, TimeSpan.Zero);
 
     private readonly Headers _headers;
@@ -41,7 +40,7 @@ public class KafkaLegacyTimeStampFormatTests
         //act
         Message read = new KafkaMessageCreator().CreateMessage(ConsumeResultFor(_headers));
 
-        //assert - an offset-less value is taken as UTC and left there, not converted to host-local time
+        //assert
         Assert.Equal(s_utcTimeStamp, read.Header.TimeStamp);
         Assert.Equal(TimeSpan.Zero, read.Header.TimeStamp.Offset);
     }

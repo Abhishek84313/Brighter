@@ -58,8 +58,7 @@ public class KafkaDefaultMessageHeaderBuilderTests
         Assert.Equal(message.Header.MessageType.ToString().ToByteArray(), headers.GetLastBytes(HeaderNames.MESSAGE_TYPE));
         Assert.Equal(message.Header.MessageId.Value.ToByteArray(), headers.GetLastBytes(HeaderNames.MESSAGE_ID));
         Assert.Equal(message.Header.Topic.Value.ToByteArray(), headers.GetLastBytes(HeaderNames.TOPIC));
-        //The timestamp goes on the wire as RFC 3339 (UTC, offset-bearing), not as an offset-less DateTime:
-        //dropping the offset left the reader to guess it, drifting Header.TimeStamp by the host offset per hop.
+        //The wire format is pinned here deliberately: RFC 3339, so the offset survives a round-trip
         Assert.Equal(message.Header.TimeStamp.ToRfc3339().ToByteArray(), headers.GetLastBytes(HeaderNames.TIMESTAMP));
         Assert.Equal(message.Header.CorrelationId.Value.ToByteArray(), headers.GetLastBytes(HeaderNames.CORRELATION_ID));
         Assert.Equal(message.Header.PartitionKey.Value.ToByteArray(), headers.GetLastBytes(HeaderNames.PARTITIONKEY));

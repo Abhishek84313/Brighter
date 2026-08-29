@@ -9,8 +9,7 @@ namespace Paramore.Brighter.Kafka.Tests.MessagingGateway.Reactor;
 [Collection("Kafka")] //
 public class KafkaTimeStampRoundTripTests
 {
-    //A timestamp deliberately *not* at UTC. If the writer drops the offset the reader cannot recover
-    //the instant, so this fails on any host - we do not depend on the test host being in a non-UTC zone.
+    //Deliberately not at UTC: an offset the writer must not drop, so this fails on a UTC host too
     private static readonly DateTimeOffset s_timeStamp = new(2024, 6, 15, 13, 45, 30, TimeSpan.FromHours(5));
 
     private readonly KafkaDefaultMessageHeaderBuilder _builder = new();
@@ -32,21 +31,19 @@ public class KafkaTimeStampRoundTripTests
     [Fact]
     public void When_round_tripping_a_timestamp_should_preserve_the_instant_across_hops()
     {
-        //act - first hop: the original send
+        //act
         Headers firstHopHeaders = _builder.Build(_message);
         Message firstHop = new KafkaMessageCreator().CreateMessage(ConsumeResultFor(firstHopHeaders));
 
-        //assert - the instant, and its UTC wall-clock, survive the hop
+        //assert
         Assert.Equal(s_timeStamp, firstHop.Header.TimeStamp);
         Assert.Equal(s_timeStamp.ToUniversalTime().DateTime, firstHop.Header.TimeStamp.ToUniversalTime().DateTime);
-
-        //assert - what we read is anchored to UTC, not re-stamped with the host's offset
         Assert.Equal(TimeSpan.Zero, firstHop.Header.TimeStamp.Offset);
 
-        //act - second hop: re-publishing what we read, as a requeue does
+        //act - a requeue re-publishes what we read
         Headers secondHopHeaders = _builder.Build(firstHop);
 
-        //assert - a re-publish is idempotent on the wire, so drift cannot accumulate over hops
+        //assert - identical bytes, so drift cannot accumulate over hops
         Assert.Equal(firstHopHeaders.GetLastBytes(HeaderNames.TIMESTAMP),
             secondHopHeaders.GetLastBytes(HeaderNames.TIMESTAMP));
     }
